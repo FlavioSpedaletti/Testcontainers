@@ -22,7 +22,9 @@ builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddDbContext<AppDbContext>(x => x.UseNpgsql("Database:ConnectionString"));
+var conn = builder.Configuration.GetValue<string>("Database:ConnectionString");
+
+builder.Services.AddDbContext<AppDbContext>(x => x.UseNpgsql(conn));
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 
 var app = builder.Build();

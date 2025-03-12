@@ -15,10 +15,9 @@ using Xunit.Abstractions;
 
 namespace Customers.Api.Tests.Integration;
 
-public class CustomerEndpointsTests : IAsyncLifetime
+public class CustomerEndpointsTests(ITestOutputHelper testOutputHelper) : IAsyncLifetime
 {
     private HttpClient _client = null!;
-    private readonly ITestOutputHelper _testOutputHelper;
 
     private readonly Faker<CustomerRequest> _customerGenerator =
         new Faker<CustomerRequest>()
@@ -34,9 +33,33 @@ public class CustomerEndpointsTests : IAsyncLifetime
             .WithPassword("changeme")
             .Build();
 
-    public CustomerEndpointsTests(ITestOutputHelper testOutputHelper)
+    public async Task InitializeAsync()
     {
-        _testOutputHelper = testOutputHelper;
+        await _dbContainer.StartAsync();
+
+        var waf = new WebApplicationFactory<IApiMarker>()
+            .WithWebHostBuilder(builder =>
+            {
+                builder.ConfigureLogging(x =>
+                {
+                    x.ClearProviders();
+                    x.SetMinimumLevel(LogLevel.Debug);
+                    x.AddFilter(_ => true);
+
+                    x.Services.AddSingleton<ILoggerProvider>(new XUnitLoggerProvider(testOutputHelper));
+                });
+
+                builder.ConfigureTestServices(services =>
+                {
+                    services.RemoveAll<DbContextOptions<AppDbContext>>();
+                    services.RemoveAll<AppDbContext>();
+
+                    services.AddDbContext<AppDbContext>(x =>
+                        x.UseNpgsql(_dbContainer.GetConnectionString()));
+                });
+            });
+
+        _client = waf.CreateClient();
     }
 
     [Fact]
@@ -63,36 +86,13 @@ public class CustomerEndpointsTests : IAsyncLifetime
         customerResponse.Id.Should().NotBeEmpty();
     }
 
-    public async Task InitializeAsync()
-    {
-        await _dbContainer.StartAsync();
-        var waf = new WebApplicationFactory<IApiMarker>()
-            .WithWebHostBuilder(builder =>
-            {
-                builder.ConfigureLogging(x =>
-                {
-                    x.ClearProviders();
-                    x.SetMinimumLevel(LogLevel.Debug);
-                    x.AddFilter(_ => true);
-                    
-                    x.Services.AddSingleton<ILoggerProvider>(new XUnitLoggerProvider(_testOutputHelper));
-                });
-                
-                builder.ConfigureTestServices(services =>
-                {
-                    services.RemoveAll<DbContextOptions<AppDbContext>>();
-                    services.RemoveAll<AppDbContext>();
+    //public async Task DisposeAsync()
+    //{
+    //    await _dbContainer.StopAsync();
+    //}
 
-                    services.AddDbContext<AppDbContext>(x =>
-                        x.UseNpgsql(_dbContainer.GetConnectionString()));
-                });
-            });
-        
-        _client = waf.CreateClient();
-    }
-
-    public async Task DisposeAsync()
+    public Task DisposeAsync()
     {
-        await _dbContainer.StopAsync();
+        return _dbContainer.DisposeAsync().AsTask();
     }
 }
